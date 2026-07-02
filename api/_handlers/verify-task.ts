@@ -20,6 +20,16 @@ export default async function handler(req: any, res: any) {
     apikey: SUPABASE_SERVICE_ROLE,
   };
 
+  const safeJson = async (res: Response) => {
+    try {
+      return await res.json();
+    } catch (err) {
+      const txt = await res.text().catch(() => "");
+      console.error('Failed to parse JSON response:', txt, err);
+      return null;
+    }
+  };
+
   try {
     // Fetch the user_task record
     const taskRes = await fetch(
@@ -35,7 +45,7 @@ export default async function handler(req: any, res: any) {
       return res.status(502).json({ error: 'Task not found' });
     }
 
-    const tasks = await taskRes.json();
+    const tasks = (await safeJson(taskRes)) || [];
     if (!Array.isArray(tasks) || tasks.length === 0) {
       return res.status(404).json({ error: 'Task record not found' });
     }
@@ -72,18 +82,26 @@ export default async function handler(req: any, res: any) {
     if (taskId === 5) rewardAmount = 10000; // Daily check-in
 
     // Fetch current profile
-    const profileRes = await fetch(
+    // Try to fetch balance + task_progress; if DB schema doesn't have task_progress
+    // the REST call will 400 — fallback to fetching all columns.
+    let profileRes = await fetch(
       `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}&select=balance,task_progress`,
-      {
-        headers: sbHeaders,
-      }
+      { headers: sbHeaders }
     );
 
     if (!profileRes.ok) {
-      return res.status(502).json({ error: 'Failed to fetch profile' });
+      // If the select failed (possible missing column), try a simple fetch
+      if (profileRes.status === 400) {
+        console.warn('Profile select for task_progress failed, retrying without select');
+        profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}`, { headers: sbHeaders });
+      } else {
+        const txt = await profileRes.text().catch(() => '');
+        console.error('Failed to fetch profile', profileRes.status, txt);
+        return res.status(502).json({ error: 'Failed to fetch profile' });
+      }
     }
 
-    const profiles = await profileRes.json();
+    const profiles = (await safeJson(profileRes)) || [];
     if (!Array.isArray(profiles) || profiles.length === 0) {
       return res.status(404).json({ error: 'Profile not found' });
     }
