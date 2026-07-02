@@ -19,6 +19,12 @@ export default async function handler(req: any, res: any) {
 
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
+  const sbHeaders = {
+    'Content-Type': 'application/json',
+    apikey: SUPABASE_SERVICE_ROLE,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+  };
+
   try {
     // Fetch the user_task record
     const taskRes = await fetch(
@@ -34,7 +40,7 @@ export default async function handler(req: any, res: any) {
       return res.status(502).json({ error: 'Task not found' });
     }
 
-    const tasks = (await safeJson(taskRes)) || [];
+    const tasks = await taskRes.json().catch(() => []);
     if (!Array.isArray(tasks) || tasks.length === 0) {
       return res.status(404).json({ error: 'Task record not found' });
     }
