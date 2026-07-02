@@ -13,7 +13,7 @@ export const SpinWheel = ({ isSpinning, result }: SpinWheelProps) => {
 
   // Wheel segments: 12 slices
   const segments = [
-    { outcome: "WIN", color: "hsl(142 76% 36%)" },     // Green - WIN
+    { outcome: "WIN", color: "hsl(142 76% 36%)" },     // Green -WIN
     { outcome: "LOSE", color: "hsl(0 84.2% 60.2%)" },  // Red - LOSE
     { outcome: "TRY_AGAIN", color: "hsl(45 95% 55%)" }, // Yellow - TRY AGAIN
     { outcome: "LOSE", color: "hsl(0 84.2% 60.2%)" },
