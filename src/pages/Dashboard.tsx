@@ -181,6 +181,30 @@ const Dashboard = () => {
       if (error) throw error;
       setProfile(data);
 
+      // Auto-notify user when balance reaches ₦200,000 (fires only once)
+      if (data && data.balance >= 200000 && !data.withdrawal_notified) {
+        try {
+          // Mark as notified first to prevent duplicate emails
+          await supabase
+            .from("profiles")
+            .update({ withdrawal_notified: true })
+            .eq("id", userId);
+
+          // Fire the notification email
+          fetch('/api/notify-withdrawal-eligible', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: data.email,
+              username: data.username,
+              full_name: data.full_name,
+            }),
+          }).catch((e) => console.warn('Withdrawal notify email failed:', e));
+        } catch (e) {
+          console.warn('Failed to send withdrawal notification:', e);
+        }
+      }
+
       const { data: claims } = await supabase
         .from("claims")
         .select("*")

@@ -12,7 +12,8 @@ import verifyTurnstile       from './_handlers/verify-turnstile.js';
 import forgotPassword        from './_handlers/forgot-password.js';
 import resetPassword         from './_handlers/reset-password.js';
 import startTask             from './_handlers/start-task.js';
-import verifyTask            from './_handlers/verify-task.js';
+import verifyTask                   from './_handlers/verify-task.js';
+import notifyWithdrawalEligible     from './_handlers/notify-withdrawal-eligible.js';
 
 type Handler = (req: any, res: any) => any;
 
@@ -28,7 +29,8 @@ const ROUTES: Record<string, Handler> = {
   'forgot-password':         forgotPassword,
   'reset-password':          resetPassword,
   'start-task':              startTask,
-  'verify-task':             verifyTask,
+  'verify-task':                    verifyTask,
+  'notify-withdrawal-eligible':      notifyWithdrawalEligible,
 };
 
 export default async function handler(req: any, res: any) {
