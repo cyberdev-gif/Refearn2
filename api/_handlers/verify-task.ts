@@ -76,30 +76,44 @@ export default async function handler(req: any, res: any) {
     }
     if (taskId === 5) rewardAmount = 10000; // Daily check-in
 
-    // Fetch current balance from profile using Supabase admin client
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('balance')
-      .eq('id', user_id)
-      .single();
+    // Fetch current balance from profile using Supabase REST with service role
+    const profileRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}&select=balance`,
+      {
+        headers: sbHeaders,
+      }
+    );
 
-    if (profileError) {
-      console.error('Failed to fetch profile', profileError);
-      return res.status(502).json({ error: 'Failed to fetch profile', details: profileError.message });
+    if (!profileRes.ok) {
+      const text = await profileRes.text().catch(() => '');
+      console.error('Failed to fetch profile', profileRes.status, text);
+      return res.status(502).json({ error: 'Failed to fetch profile', details: text });
     }
 
-    const currentBalance = Number(profile?.balance) || 0;
+    const profiles = await profileRes.json().catch(() => []);
+    const profile = Array.isArray(profiles) && profiles.length > 0 ? profiles[0] : null;
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const currentBalance = Number(profile.balance) || 0;
     const newBalance = currentBalance + rewardAmount;
 
-    // Update profile balance only
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ balance: newBalance })
-      .eq('id', user_id);
+    // Update profile balance only via REST
+    const updateRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+        ...sbHeaders,
+      },
+      body: JSON.stringify({ balance: newBalance }),
+    });
 
-    if (updateError) {
-      console.error('Failed to update profile', updateError);
-      return res.status(502).json({ error: 'Failed to update balance', details: updateError.message });
+    if (!updateRes.ok) {
+      const text = await updateRes.text().catch(() => '');
+      console.error('Failed to update profile balance', updateRes.status, text);
+      return res.status(502).json({ error: 'Failed to update balance', status: updateRes.status, details: text });
     }
 
     // Mark user_task as completed
