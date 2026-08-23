@@ -9,8 +9,11 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Send, Eye, EyeOff } from "lucide-react";
 
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
-const HCAPTCHA_SITE_KEY = import.meta.env.VITE_HCAPTCHA_SITE_KEY || "";
+// const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+// const HCAPTCHA_SITE_KEY = import.meta.env.VITE_HCAPTCHA_SITE_KEY || "";
+// CAPTCHA DISABLED - reCAPTCHA/hCaptcha/Turnstile commented out per request
+const TURNSTILE_SITE_KEY = "";
+const HCAPTCHA_SITE_KEY = "";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -72,6 +75,7 @@ const Auth = () => {
   useEffect(() => {
     setFormRenderTime(Date.now());
 
+    /* CAPTCHA DISABLED - hCaptcha / Turnstile loading commented out
     // prefer hCaptcha if configured, otherwise fallback to Turnstile
     if (HCAPTCHA_SITE_KEY) {
       const renderHcaptcha = () => {
@@ -168,6 +172,7 @@ const Auth = () => {
         renderTurnstile();
       }
     }
+    END CAPTCHA DISABLED */
 
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -206,6 +211,7 @@ const Auth = () => {
         throw new Error("Please take a moment before submitting the form.");
       }
 
+      /* CAPTCHA DISABLED - signup verification commented out
       // Verification token handling: prefer hCaptcha, fallback to Turnstile
       if (HCAPTCHA_SITE_KEY) {
         const hToken = (window as any).__hcaptcha_token || "";
@@ -231,6 +237,7 @@ const Auth = () => {
         // No captcha provider configured: rely on honeypot/timing as a last resort
         console.warn("No captcha provider configured; using honeypot/timing fallback");
       }
+      END CAPTCHA DISABLED */
 
       // If user requested OTP, verify it before creating account
       if (otpRequested) {
@@ -362,6 +369,7 @@ const Auth = () => {
     setIsLoading(true);
 
     try {
+      /* CAPTCHA DISABLED - login verification commented out
       // Verify captcha token if provider configured
       if (HCAPTCHA_SITE_KEY) {
         const hToken = (window as any).__hcaptcha_token || "";
@@ -382,6 +390,7 @@ const Auth = () => {
         }).then((r) => r.json());
         if (!vt.success) throw new Error("Captcha verification failed. Try again.");
       }
+      END CAPTCHA DISABLED */
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email: loginData.email.trim(),
@@ -653,7 +662,7 @@ const Auth = () => {
                   </label>
                 </div>
 
-                {/* Captcha widget container (unstyled so provider renders normally) */}
+                {/* CAPTCHA DISABLED - Captcha widget container commented out
                 <div className="mt-2">
                   {HCAPTCHA_SITE_KEY ? (
                     <div id="hc-widget" />
@@ -663,6 +672,7 @@ const Auth = () => {
                     <div className="text-sm text-muted-foreground">Captcha not configured</div>
                   )}
                 </div>
+                END CAPTCHA DISABLED */}
 
                 {/* Honeypot hidden field (bots will fill this) */}
                 <input
@@ -739,7 +749,7 @@ const Auth = () => {
                     </button>
                   </div>
 
-                  {/* Login captcha (unstyled) */}
+                  {/* CAPTCHA DISABLED - Login captcha commented out
                   <div className="mt-2">
                     {HCAPTCHA_SITE_KEY ? (
                       <div id="hc-widget-login" />
@@ -747,6 +757,7 @@ const Auth = () => {
                       <div id="cf-turnstile-login" />
                     ) : null}
                   </div>
+                  END CAPTCHA DISABLED */}
                   <Button
                     type="submit"
                     className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-primary-foreground font-semibold"

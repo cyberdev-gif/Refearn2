@@ -8,12 +8,16 @@ import TaskProgressBar from "@/components/TaskProgressBar";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-// ── Claim Counter Visual ────────────────────────────────────────────────────
-const ClaimCounter = ({ totalClaims }: { totalClaims: number }) => {
-  const MAX = 100;
-  const pct = Math.min((totalClaims / MAX) * 100, 100);
-  const isAlmostThere = totalClaims >= 75;
-  const isComplete = totalClaims >= MAX;
+// ── Earn to Upgrade — Money Progress (replaces earn/claim count with ₦75,000 track) ──
+const ClaimCounter = ({ progress, target = 75000 }: { progress: number; target?: number }) => {
+  const pct = Math.max(0, Math.min(100, Math.round((progress / target) * 100)));
+  const remaining = Math.max(0, target - progress);
+  const isAlmostThere = pct >= 75 && pct < 100;
+  const isComplete = progress >= target;
+  const fmt = (n: number) => `₦${n.toLocaleString()}`;
+
+  // milestones at 25%,50%,75%,100% of target
+  const milestones = [0.25, 0.5, 0.75, 1].map((r) => Math.round(target * r));
 
   return (
     <Card
@@ -71,37 +75,38 @@ const ClaimCounter = ({ totalClaims }: { totalClaims: number }) => {
               letterSpacing: "0.02em",
             }}
           >
-            {isComplete ? "🎉 UPGRADED!" : "Progress to Upgrade"}
+            {isComplete ? "🎉 UPGRADED!" : "Earn to Upgrade"}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: "2px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
           <span
             style={{
-              fontSize: "1.6rem",
+              fontSize: "1.05rem",
               fontWeight: 900,
               color: isComplete ? "#fbbf24" : "#a78bfa",
               lineHeight: 1,
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {totalClaims}
+            {fmt(progress)}
           </span>
           <span
-            style={{ fontSize: "0.85rem", color: "#94a3b8", fontWeight: 600 }}
+            style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 600 }}
           >
-            /{MAX}
+            / {fmt(target)}
           </span>
         </div>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar — fills based on money earned */}
       <div
         style={{
-          height: "10px",
+          height: "12px",
           borderRadius: "999px",
           background: "rgba(255,255,255,0.08)",
           overflow: "hidden",
           marginBottom: "0.6rem",
+          border: "1px solid rgba(255,255,255,0.04)",
         }}
       >
         <div
@@ -110,17 +115,21 @@ const ClaimCounter = ({ totalClaims }: { totalClaims: number }) => {
             width: `${pct}%`,
             borderRadius: "999px",
             background: isComplete
-              ? "linear-gradient(90deg, #fbbf24, #ef4444, #8b5cf6)"
+              ? "linear-gradient(90deg, #12b886, #16a34a, #fbbf24)"
               : "linear-gradient(90deg, #6d28d9, #a78bfa, #7c3aed)",
             boxShadow: isComplete
-              ? "0 0 10px rgba(251,191,36,0.7)"
+              ? "0 0 10px rgba(18,184,134,0.7)"
               : "0 0 10px rgba(139,92,246,0.6)",
-            transition: "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
+            transition: "width 700ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         />
       </div>
 
-      {/* Milestone dots */}
+      {/* Percentage + milestone dots */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+        <span style={{ fontSize: "0.7rem", color: isComplete ? "#bbf7d0" : "#94a3b8", fontWeight: 700 }}>{pct}%</span>
+        <span style={{ fontSize: "0.65rem", color: "#64748b" }}>{isComplete ? "Target reached ✅" : `${fmt(remaining)} left to upgrade`}</span>
+      </div>
       <div
         style={{
           display: "flex",
@@ -128,8 +137,8 @@ const ClaimCounter = ({ totalClaims }: { totalClaims: number }) => {
           position: "relative",
         }}
       >
-        {[25, 50, 75, 100].map((milestone) => {
-          const reached = totalClaims >= milestone;
+        {milestones.map((milestone) => {
+          const reached = progress >= milestone;
           return (
             <div
               key={milestone}
@@ -163,7 +172,7 @@ const ClaimCounter = ({ totalClaims }: { totalClaims: number }) => {
                   fontWeight: 600,
                 }}
               >
-                {milestone}
+                {fmt(milestone)}
               </span>
             </div>
           );
@@ -180,10 +189,10 @@ const ClaimCounter = ({ totalClaims }: { totalClaims: number }) => {
         }}
       >
         {isComplete
-          ? "You've reached 100 claims — account upgraded! 🚀"
+          ? `You've earned ${fmt(target)} via tasks — account upgraded! 🚀 Eligible to withdraw.`
           : isAlmostThere
-            ? `🔥 Almost there! ${MAX - totalClaims} more claim${MAX - totalClaims !== 1 ? "s" : ""} to unlock upgrade`
-            : `Complete ${MAX - totalClaims} more task${MAX - totalClaims !== 1 ? "s" : ""} to unlock your account upgrade`}
+            ? `🔥 Almost there! Earn ${fmt(remaining)} more to unlock upgrade & withdrawals`
+            : `Complete tasks to earn ${fmt(remaining)} more to unlock your account upgrade`}
       </p>
     </Card>
   );
@@ -595,8 +604,17 @@ const Tasks = () => {
         // Increment total claims counter
         const newTotal = incrementTotalClaims();
 
-        // Check if just upgraded
-        if (newTotal === 100) {
+        // Check if just upgraded — prioritize money-based upgrade to ₦75,000
+        const moneyJustCompleted = new_task_progress >= 75000 && (new_task_progress - (reward_amount || 0) < 75000);
+        if (moneyJustCompleted) {
+          await supabase
+            .from("profiles")
+            .update({ is_upgraded: true } as any)
+            .eq("id", user.id);
+          toast.success("🎉 ACCOUNT UPGRADED! You've earned ₦75,000 via tasks — withdrawals unlocked!", {
+            duration: 6000,
+          });
+        } else if (newTotal === 100) {
           await supabase
             .from("profiles")
             .update({ is_upgraded: true } as any)
@@ -649,11 +667,11 @@ const Tasks = () => {
           </p>
         </Card>
 
-        {/* ── Task Earnings Progress (current cycle) ── */}
+        {/* ── Earn to Upgrade — Money Progress to ₦75,000 ── */}
         <TaskProgressBar progress={taskProgress} />
 
-        {/* ── Claim Counter Visual ── */}
-        <ClaimCounter totalClaims={totalClaims} />
+        {/* ── Earn to Upgrade Visual (money-based) ── */}
+        <ClaimCounter progress={taskProgress} target={75000} />
 
         {tasks.map((task) => {
           const isClaimed = isTaskClaimedToday(task.id);

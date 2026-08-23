@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, DollarSign, Radio, AlertCircle } from "lucide-react";
+import { ArrowLeft, DollarSign, Radio, AlertCircle, Trophy, Target } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { FloatingActionButton } from "@/components/FloatingActionButton";
@@ -46,9 +46,22 @@ const Withdraw = () => {
     standard: { minAmount: 150000, requiredReferrals: 0, name: "Standard (Premium)" }
   };
 
+  // Task earnings requirement (must earn ₦75,000 via tasks to withdraw)
+  const TASK_EARNINGS_REQUIRED = 75000;
+  const taskProgress = Number(profile?.task_progress ?? 0);
+  const taskCompleted = profile?.task_completed ?? taskProgress >= TASK_EARNINGS_REQUIRED;
+  const taskPct = Math.max(0, Math.min(100, Math.round((taskProgress / TASK_EARNINGS_REQUIRED) * 100)));
+  const taskRemaining = Math.max(0, TASK_EARNINGS_REQUIRED - taskProgress);
+  const isTaskEligible = taskProgress >= TASK_EARNINGS_REQUIRED;
+
   const handleStartCountdown = async (withdrawalId?: string) => {
     const id = withdrawalId || pendingWithdrawalId;
     if (!id) return toast.error('No withdrawal selected');
+    // Block if task earnings not yet reached
+    if (!isTaskEligible) {
+      toast.error(`You need to earn ₦${TASK_EARNINGS_REQUIRED.toLocaleString()} through tasks to withdraw. You have ₦${taskProgress.toLocaleString()} — ₦${taskRemaining.toLocaleString()} more to go.`);
+      return;
+    }
     setSubmitting(true);
     try {
       // call start-withdrawal endpoint
@@ -169,6 +182,12 @@ const Withdraw = () => {
     // Check referral requirement
     if (profile.total_referrals < tier.requiredReferrals) {
       toast.error(`You need at least ${tier.requiredReferrals} referrals for ${tier.name}`);
+      return;
+    }
+
+    // Check task earnings requirement - must have earned ₦75,000 via tasks
+    if (taskProgress < TASK_EARNINGS_REQUIRED) {
+      toast.error(`You need to earn ₦${TASK_EARNINGS_REQUIRED.toLocaleString()} through tasks to withdraw. You have ₦${taskProgress.toLocaleString()} — ₦${taskRemaining.toLocaleString()} more to go. Complete tasks to unlock withdrawals.`);
       return;
     }
 
@@ -325,6 +344,65 @@ const Withdraw = () => {
             <DollarSign className="w-8 h-8 text-secondary" />
           </div>
 
+          {/* Task Earnings Requirement - Must earn ₦75,000 via tasks to withdraw */}
+          <div className={`mb-6 rounded-xl border p-4 ${isTaskEligible ? 'bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/30' : 'bg-muted/50 border-border/50'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center ${isTaskEligible ? 'bg-green-500 text-white' : 'bg-primary/10 text-primary'}`}>
+                  {isTaskEligible ? <Trophy className="w-5 h-5" /> : <Target className="w-5 h-5" />}
+                </div>
+                <div>
+                  <p className="text-sm font-bold leading-none">Task Earnings Requirement</p>
+                  <p className="text-xs text-muted-foreground mt-1">Earn through tasks to unlock withdrawals</p>
+                </div>
+              </div>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${isTaskEligible ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
+                {taskPct}%
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center mb-1.5">
+              <span className={`text-sm font-extrabold ${isTaskEligible ? 'text-green-600 dark:text-green-400' : 'text-primary'}`}>₦{taskProgress.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-muted-foreground">/ ₦{TASK_EARNINGS_REQUIRED.toLocaleString()}</span>
+            </div>
+
+            <div className="h-3 bg-background/60 rounded-full overflow-hidden border border-border/30">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${taskPct}%`,
+                  transition: 'width 700ms cubic-bezier(0.16, 1, 0.3, 1)',
+                  background: isTaskEligible
+                    ? 'linear-gradient(90deg, #12b886, #16a34a)'
+                    : 'linear-gradient(90deg, #7c3aed, #a78bfa)',
+                  boxShadow: isTaskEligible
+                    ? '0 0 10px rgba(18,184,134,0.5)'
+                    : '0 0 10px rgba(124,58,237,0.4)',
+                }}
+              />
+            </div>
+
+            <div className="flex justify-between items-center mt-2">
+              <p className={`text-xs font-medium ${isTaskEligible ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                {isTaskEligible
+                  ? '✅ Eligible to withdraw — requirement met!'
+                  : `₦${taskRemaining.toLocaleString()} more to unlock withdrawals`}
+              </p>
+              {isTaskEligible && <span className="text-xs text-green-600 dark:text-green-400 font-bold">✓ Unlocked</span>}
+            </div>
+
+            {!isTaskEligible && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/tasks")}
+                className="w-full mt-3 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground text-sm h-9"
+              >
+                Complete Tasks to Earn ₦{taskRemaining.toLocaleString()} More
+              </Button>
+            )}
+          </div>
+
           <div className="mb-6 p-4 bg-muted/50 rounded-lg">
             <Label className="text-base font-semibold mb-3 block">Choose Withdrawal Type</Label>
             <div className="flex gap-3">
@@ -417,18 +495,36 @@ const Withdraw = () => {
               )}
             </div>
 
+            {!isTaskEligible && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <p className="text-xs leading-relaxed">
+                  Withdrawals are locked until you earn <span className="font-bold">₦{TASK_EARNINGS_REQUIRED.toLocaleString()}</span> through tasks. You have <span className="font-bold">₦{taskProgress.toLocaleString()}</span> — earn <span className="font-bold">₦{taskRemaining.toLocaleString()}</span> more to unlock.
+                </p>
+              </div>
+            )}
+
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-primary to-secondary"
-              disabled={submitting || !walletSaved}
+              className={`w-full ${!isTaskEligible ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-gradient-to-r from-primary to-secondary'}`}
+              disabled={submitting || !walletSaved || !isTaskEligible}
             >
-              {submitting ? "Submitting..." : "Submit Withdrawal"}
+              {!isTaskEligible
+                ? `Locked — Earn ₦${taskRemaining.toLocaleString()} More via Tasks`
+                : submitting ? "Submitting..." : "Submit Withdrawal"}
             </Button>
 
             {/* If draft exists, allow starting countdown when requirements are met */}
             {pendingWithdrawalId && !activeWithdrawal && (
-              <Button type="button" className="w-full mt-2" onClick={() => handleStartCountdown(pendingWithdrawalId)} disabled={submitting}>
-                {submitting ? 'Starting...' : 'Request Withdrawal (Start 24h Countdown)'}
+              <Button
+                type="button"
+                className={`w-full mt-2 ${!isTaskEligible ? 'bg-muted text-muted-foreground' : ''}`}
+                onClick={() => handleStartCountdown(pendingWithdrawalId)}
+                disabled={submitting || !isTaskEligible}
+              >
+                {!isTaskEligible
+                  ? `Locked — Need ₦${taskRemaining.toLocaleString()} More Task Earnings`
+                  : submitting ? 'Starting...' : 'Request Withdrawal (Start 24h Countdown)'}
               </Button>
             )}
           </form>

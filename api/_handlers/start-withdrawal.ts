@@ -25,7 +25,8 @@ export default async function handler(req: any, res: any) {
     if (Number(profile.balance) < 200000) return res.status(400).json({ error: 'Insufficient balance' });
     if (!profile.email_verified) return res.status(400).json({ error: 'Email not verified' });
     if (!profile.identity_verified) return res.status(400).json({ error: 'Identity not verified' });
-    if (!profile.task_completed) return res.status(400).json({ error: 'Task progress incomplete' });
+    const taskProg = Number((profile as any).task_progress ?? 0);
+    if (!profile.task_completed && taskProg < 75000) return res.status(400).json({ error: `Task earnings incomplete: You need ₦75,000 via tasks. Current: ₦${taskProg.toLocaleString()}` });
 
     // Prevent duplicate active timers
     if (w.countdown_started_at) return res.status(400).json({ error: 'Countdown already started' });

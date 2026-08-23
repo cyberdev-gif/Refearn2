@@ -76,9 +76,9 @@ export default async function handler(req: any, res: any) {
     }
     if (taskId === 5) rewardAmount = 10000; // Daily check-in
 
-    // Fetch current balance from profile using Supabase REST with service role
+    // Fetch current balance + task progress from profile using Supabase REST with service role
     const profileRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}&select=balance`,
+      `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}&select=balance,task_progress,task_completed`,
       {
         headers: sbHeaders,
       }
@@ -98,8 +98,11 @@ export default async function handler(req: any, res: any) {
 
     const currentBalance = Number(profile.balance) || 0;
     const newBalance = currentBalance + rewardAmount;
+    const currentProgress = Number(profile.task_progress) || 0;
+    const newTaskProgress = currentProgress + rewardAmount;
+    const taskCompleted = newTaskProgress >= 75000;
 
-    // Update profile balance only via REST
+    // Update profile balance + task_progress only via REST
     const updateRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}`, {
       method: 'PATCH',
       headers: {
@@ -107,7 +110,7 @@ export default async function handler(req: any, res: any) {
         Prefer: 'return=representation',
         ...sbHeaders,
       },
-      body: JSON.stringify({ balance: newBalance }),
+      body: JSON.stringify({ balance: newBalance, task_progress: newTaskProgress, task_completed: taskCompleted }),
     });
 
     if (!updateRes.ok) {
@@ -139,7 +142,7 @@ export default async function handler(req: any, res: any) {
       reward_added: true,
       reward_amount: rewardAmount,
       new_balance: newBalance,
-      new_task_progress: null,
+      new_task_progress: newTaskProgress,
     });
   } catch (err) {
     console.error('verify-task error', err);
