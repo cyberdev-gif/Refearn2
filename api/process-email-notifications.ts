@@ -8,12 +8,18 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 // - EMAIL_SENDER (the From address)
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
   const BREVO_API_KEY = process.env.BREVO_API_KEY;
   const EMAIL_SENDER = process.env.EMAIL_SENDER || 'no-reply@nairox9ja.com';
+  const CRON_SECRET = process.env.CRON_SECRET;
+
+  if (CRON_SECRET) {
+    const auth = req.headers.authorization || '';
+    if (auth !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return res.status(500).json({ error: 'Supabase env not configured' });
   if (!BREVO_API_KEY) return res.status(500).json({ error: 'BREVO_API_KEY not configured' });
