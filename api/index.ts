@@ -1,8 +1,6 @@
 // Single Vercel serverless function that dispatches all /api/* routes.
 // Uses static imports so Vercel bundles everything into ONE function (stays under Hobby 12-function limit).
 
-import sendEmailVerification from './_handlers/send-email-verification.js';
-import verifyEmail           from './_handlers/verify-email.js';
 import sendWelcomeImmediate  from './_handlers/send-welcome-immediate.js';
 import getBanks              from './_handlers/get-banks.js';
 import startWithdrawal       from './_handlers/start-withdrawal.js';
@@ -19,8 +17,6 @@ import processEmailNotifications from './process-email-notifications.js';
 type Handler = (req: any, res: any) => any;
 
 const ROUTES: Record<string, Handler> = {
-  'send-email-verification': sendEmailVerification,
-  'verify-email':            verifyEmail,
   'send-welcome-immediate':  sendWelcomeImmediate,
   'get-banks':               getBanks,
   'start-withdrawal':        startWithdrawal,

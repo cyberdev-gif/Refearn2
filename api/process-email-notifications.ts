@@ -57,10 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let subject = 'Notification from Nairox9ja';
         let htmlContent = '<p>Notification from Nairox9ja</p>';
 
-        if (n.type === 'email_verification') {
-          subject = 'Verify your Nairox9ja email address';
-          htmlContent = `<p>Welcome to Nairox9ja!</p><p>Your verification code is <strong>${payload.code || ''}</strong>. It expires in 30 minutes.</p>`;
-        } else if (n.type === 'withdrawal_eligibility') {
+        if (n.type === 'withdrawal_eligibility') {
           subject = 'Withdrawal Eligibility Reached';
           htmlContent = `<p>Congratulations! Your account has reached the minimum withdrawal amount (₦${payload.balance?.toLocaleString ? payload.balance.toLocaleString() : payload.balance}).</p><p>Please ensure your email is verified and complete identity verification and task requirements before submitting a withdrawal request.</p>`;
         } else if (n.type === 'withdrawal_processing') {

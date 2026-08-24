@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Eye, EyeOff } from "lucide-react";
+import { Send, Eye, EyeOff, Mail, RefreshCw } from "lucide-react";
 
 // const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 // const HCAPTCHA_SITE_KEY = import.meta.env.VITE_HCAPTCHA_SITE_KEY || "";
@@ -61,9 +61,9 @@ const Auth = () => {
   });
   const [otpSentReset, setOtpSentReset] = useState(false);
 
-  const [otp, setOtp] = useState("");
-  const [otpRequested, setOtpRequested] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("signup");
 
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [showSignupConfirmPassword, setShowSignupConfirmPassword] = useState(false);
@@ -181,6 +181,33 @@ const Auth = () => {
     checkSession();
   }, [navigate]);
 
+  // Send the welcome email as soon as the account becomes active — i.e. right
+  // after the user clicks the Supabase confirmation link (session established
+  // on return to /auth) or logs in. The API handler dedupes via
+  // profiles.welcome_sent so it is only ever delivered once.
+  const welcomeEmailSentRef = useRef(false);
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event !== 'SIGNED_IN' && event !== 'USER_UPDATED') return;
+      const user = session?.user;
+      if (!user || welcomeEmailSentRef.current) return;
+      welcomeEmailSentRef.current = true;
+
+      fetch('/api/send-welcome-immediate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          email: user.email,
+          username: user.user_metadata?.username,
+          full_name: user.user_metadata?.fullName,
+        }),
+      }).catch((e) => console.warn('Welcome email failed', e));
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleSignup = async (e: FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -239,21 +266,13 @@ const Auth = () => {
       }
       END CAPTCHA DISABLED */
 
-      // If user requested OTP, verify it before creating account
-      if (otpRequested) {
-        if (!otp || otp.trim().length === 0) throw new Error('Please enter the OTP sent to your email');
-        const vr = await fetch('/api/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: signupData.email, code: otp }) }).then(r => r.json());
-        if (!vr || !vr.success) {
-          throw new Error(vr?.error || 'OTP verification failed');
-        }
-      }
-
       const finalRefCode = signupData.referralCode || localStorage.getItem("referralCode") || "";
 
       const { data, error } = await supabase.auth.signUp({
         email: signupData.email.trim(),
         password: signupData.password,
         options: {
+          emailRedirectTo: `${window.location.origin}/auth`,
           data: {
             fullName: signupData.fullName,
             username: signupData.username,
@@ -279,20 +298,9 @@ const Auth = () => {
         total_referrals: 0,
       });
 
-      // Send immediate welcome email after signup
-      try {
-        const resp = await fetch('/api/send-welcome-immediate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, email: data.user.email, username: signupData.username, full_name: signupData.fullName }),
-        });
-        if (!resp.ok) {
-          const txt = await resp.text().catch(() => '');
-          console.warn('Immediate signup welcome email failed:', resp.status, txt);
-        }
-      } catch (e) {
-        console.warn('Failed to call send-welcome-immediate after signup', e);
-      }
+      // Send welcome email once the account session is active — handled by
+      // the onAuthStateChange listener below (fires after email confirmation
+      // or on login). The API handler dedupes via profiles.welcome_sent.
 
       // Welcome bonus
       await supabase.from("transactions").insert({
@@ -354,8 +362,25 @@ const Auth = () => {
       }
 
       localStorage.removeItem("referralCode");
-      toast.success("Welcome to Nairox9ja! You got ₦50,000 bonus!");
-      navigate("/dashboard", { replace: true });
+
+      // With "Confirm email" enabled in Supabase, no session is returned until
+      // the user clicks the verification link from the Supabase email.
+      if (!data.session) {
+        setLoginData({ email: signupData.email.trim(), password: "" });
+        setSignupData({
+          fullName: "",
+          username: "",
+          email: "",
+          password: "",
+          confirmPassword: "",
+          referralCode: initialRefCode,
+          hp: "",
+        });
+        setVerificationEmail(signupData.email.trim());
+      } else {
+        toast.success("Welcome to Nairox9ja! You got ₦50,000 bonus!");
+        navigate("/dashboard", { replace: true });
+      }
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || "Signup failed. Try again.");
@@ -392,7 +417,7 @@ const Auth = () => {
       }
       END CAPTCHA DISABLED */
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: loginData.email.trim(),
         password: loginData.password,
       });
@@ -400,21 +425,29 @@ const Auth = () => {
       if (error) throw error;
 
       toast.success("Welcome back!");
-      try {
-        const resp = await fetch('/api/send-welcome-immediate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: data.user.id, email: data.user.email }) });
-        if (!resp.ok) {
-          const txt = await resp.text().catch(() => '');
-          console.warn('Immediate welcome email failed:', resp.status, txt);
-        }
-      } catch (e) {
-        console.warn('Failed to call send-welcome-immediate', e);
-      }
-
       navigate("/dashboard", { replace: true });
     } catch (error: any) {
       toast.error(error.message || "Invalid email or password");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!verificationEmail) return;
+    setResending(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: verificationEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth` },
+      });
+      if (error) throw error;
+      toast.success("Verification email resent. Please check your inbox.");
+    } catch (error: any) {
+      toast.error(error?.message || "Could not resend email. Please try again shortly.");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -504,7 +537,75 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="signup" className="w-full">
+          {verificationEmail ? (
+            <div className="text-center space-y-6 py-2 animate-slide-up">
+              <div className="relative mx-auto w-20 h-20">
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary to-secondary opacity-40 blur-xl animate-pulse" />
+                <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg glow-primary">
+                  <Mail size={36} className="text-white" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <h2 className="text-3xl font-bold gradient-text">Confirm Your Email</h2>
+                <p className="text-sm text-muted-foreground">
+                  You're almost in! To secure your account, we sent a verification link to
+                </p>
+                <p className="text-sm font-semibold text-foreground break-all bg-card/60 border border-border/50 rounded-lg px-3 py-2 inline-block">
+                  {verificationEmail}
+                </p>
+              </div>
+
+              <div className="bg-card/60 border border-border/50 rounded-xl p-4 text-left space-y-3">
+                {[
+                  "Open your email inbox (check Spam or Junk if you don't see it).",
+                  `Tap "Confirm my mail" in the email from Nairox9ja.`,
+                  "Come back here, log in, and start earning.",
+                ].map((step, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-primary to-secondary text-white text-xs font-bold flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{step}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                <a
+                  href="https://mail.google.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full text-center bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-primary-foreground font-semibold glow-primary py-3 rounded-md transition-opacity"
+                >
+                  Open Your Inbox
+                </a>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleResendVerification}
+                  disabled={resending}
+                >
+                  <RefreshCw size={16} className={`mr-2 ${resending ? "animate-spin" : ""}`} />
+                  {resending ? "Resending..." : "Didn't get it? Resend email"}
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerificationEmail(null);
+                    setActiveTab("login");
+                  }}
+                  className="text-sm text-muted-foreground underline hover:text-primary transition-colors"
+                >
+                  Back to Login
+                </button>
+              </div>
+            </div>
+          ) : (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
               <TabsTrigger value="login">Login</TabsTrigger>
@@ -536,51 +637,14 @@ const Auth = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="Enter Email Address"
-                      value={signupData.email}
-                      onChange={(e) => setSignupData({ ...signupData, email: e.target.value })}
-                      required
-                    />
-                    <button
-                      type="button"
-                      disabled={otpLoading || !signupData.email}
-                      onClick={async () => {
-                        setOtpLoading(true);
-                        try {
-                          const otpRes = await fetch('/api/send-email-verification', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email: signupData.email }),
-                          });
-                          const otpData = await otpRes.json().catch(() => ({}));
-                          if (!otpRes.ok || !otpData.success) {
-                            throw new Error(otpData.error || `Server error (${otpRes.status})`);
-                          }
-                          setOtpRequested(true);
-                          toast.success('OTP sent to your email. Check your inbox.');
-                        } catch (e: any) {
-                          console.error(e);
-                          toast.error(e?.message || 'Failed to send OTP. Please try again.');
-                        } finally {
-                          setOtpLoading(false);
-                        }
-                      }}
-                      className="px-3 py-2 rounded bg-slate-800 text-white disabled:opacity-50"
-                    >
-                      {otpLoading ? 'Sending...' : 'Get OTP'}
-                    </button>
-                  </div>
-
-                  {otpRequested && (
-                    <div className="mt-2">
-                      <Label htmlFor="otp">OTP</Label>
-                      <Input id="otp" placeholder="Enter code from email" value={otp} onChange={(e) => setOtp(e.target.value)} />
-                    </div>
-                  )}
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="Enter Email Address"
+                    value={signupData.email}
+                    onChange={(e) => setSignupData({ ...signupData, email: e.target.value })}
+                    required
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -694,7 +758,14 @@ const Auth = () => {
                 </Button>
 
                 <div className="text-center text-sm text-muted-foreground">
-                  Already have an account? <a className="text-primary underline" href="#login">Login here</a>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("login")}
+                    className="text-primary underline"
+                  >
+                    Login here
+                  </button>
                 </div>
               </form>
             </TabsContent>
@@ -877,6 +948,7 @@ const Auth = () => {
               )}
             </TabsContent>
           </Tabs>
+          )}
         </CardContent>
       </Card>
 

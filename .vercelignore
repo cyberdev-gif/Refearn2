@@ -4,12 +4,10 @@
 api/forgot-password.ts
 api/get-banks.ts
 api/reset-password.ts
-api/send-email-verification.ts
 api/send-welcome-immediate.ts
 api/start-task.ts
 api/start-withdrawal.ts
 api/verify-account.ts
-api/verify-email.ts
 api/verify-hcaptcha.ts
 api/verify-task.ts
 api/verify-turnstile.ts

@@ -157,6 +157,30 @@ export default async function handler(req: any, res: any) {
   if (!toEmail) return res.status(400).json({ error: 'Recipient email could not be determined' });
   if (!userName) userName = toEmail.split('@')[0]; // last resort fallback
 
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
+
+  // Dedup: skip if this profile already received its welcome email
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE && user_id) {
+    try {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}&select=welcome_sent`,
+        {
+          headers: {
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+            apikey: SUPABASE_SERVICE_ROLE,
+          },
+        }
+      );
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows[0]?.welcome_sent === true) {
+        return res.status(200).json({ success: true, skipped: true, reason: 'already sent' });
+      }
+    } catch (e) {
+      console.warn('welcome_sent check failed, continuing', e);
+    }
+  }
+
   try {
     const sendRes = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
@@ -180,6 +204,23 @@ export default async function handler(req: any, res: any) {
         brevo_status: sendRes.status,
         details: txt,
       });
+    }
+
+    // Mark as sent so the welcome email is only delivered once per account
+    if (SUPABASE_URL && SUPABASE_SERVICE_ROLE && user_id) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user_id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+            apikey: SUPABASE_SERVICE_ROLE,
+          },
+          body: JSON.stringify({ welcome_sent: true }),
+        });
+      } catch (e) {
+        console.warn('Could not mark welcome_sent', e);
+      }
     }
 
     return res.status(200).json({ success: true, sent_to: toEmail, name: userName });
