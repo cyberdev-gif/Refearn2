@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, CheckCircle, Trophy, Zap, Star } from "lucide-react";
+import { ArrowLeft, CheckCircle, Trophy, Zap, Star, AlertTriangle } from "lucide-react";
 import { FloatingActionButton } from "@/components/FloatingActionButton";
 import TaskProgressBar from "@/components/TaskProgressBar";
 import { toast } from "sonner";
@@ -217,6 +217,7 @@ const Tasks = () => {
   const [taskProgress, setTaskProgress] = useState<number>(0);
   const [taskCompleted, setTaskCompleted] = useState<boolean>(false);
   const [completedTasks, setCompletedTasks] = useState<Set<number>>(new Set());
+  const [incompleteTasks, setIncompleteTasks] = useState<Set<number>>(new Set());
   const [activeTimers, setActiveTimers] = useState<Map<number, ActiveTimer>>(new Map());
 
   const tasks = [
@@ -436,6 +437,13 @@ const Tasks = () => {
       return;
     }
 
+    // Clear any prior incomplete flag when retrying
+    setIncompleteTasks((prev) => {
+      if (!prev.has(task.id)) return prev;
+      const n = new Set(prev);
+      n.delete(task.id);
+      return n;
+    });
     setClaimedTasks((prev) => new Set(prev).add(task.id));
 
     try {
@@ -569,7 +577,17 @@ const Tasks = () => {
 
       if (!success) {
         const waitSeconds = data.seconds_remaining ?? 10;
-        toast.info(data.message || `Please wait ${waitSeconds} more seconds before verifying.`);
+        // Mark as incomplete (orange) if user tries to verify before 10s are spent — clear timer so it doesn't auto-complete
+        setIncompleteTasks((prev) => new Set(prev).add(task.id));
+        setActiveTimers((prev) => {
+          const n = new Map(prev);
+          n.delete(task.id);
+          return n;
+        });
+        toast.error(`Incomplete — please stay on the task for ${waitSeconds}s more (10s required).`, {
+          description: data.message || `You didn't spend 10 seconds on the external link. Task marked incomplete.`,
+          duration: 4000,
+        });
         return;
       }
 
@@ -577,8 +595,21 @@ const Tasks = () => {
         // Update local state with new balances
         markTaskAsClaimed(task.id);
 
-        // Mark as completed
+        // Mark as completed and clear incomplete
         setCompletedTasks((prev) => new Set(prev).add(task.id));
+        setIncompleteTasks((prev) => {
+          if (!prev.has(task.id)) return prev;
+          const n = new Set(prev);
+          n.delete(task.id);
+          return n;
+        });
+        // Also clear timer for this task
+        setActiveTimers((prev) => {
+          if (!prev.has(task.id)) return prev;
+          const n = new Map(prev);
+          n.delete(task.id);
+          return n;
+        });
 
         // Update task progress
         setTaskProgress(new_task_progress);
@@ -679,6 +710,7 @@ const Tasks = () => {
           const isPending = pendingVerification.has(task.id);
           const isVerifying = verifyingTasks.has(task.id);
           const isCompleted = completedTasks.has(task.id);
+          const isIncomplete = incompleteTasks.has(task.id);
 
           // Find active timer by taskId
           const activeTimer = activeTimers.get(task.id);
@@ -686,7 +718,7 @@ const Tasks = () => {
 
           return (
             <div key={task.id}>
-              <Card className="bg-card/80 backdrop-blur-lg border-border/50 p-4">
+              <Card className={`backdrop-blur-lg p-4 transition-colors ${isIncomplete ? 'bg-orange-500/10 border-orange-500/50 border-2' : isCompleted ? 'bg-green-500/5 border-green-500/30' : 'bg-card/80 border-border/50'}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <h3 className="font-semibold mb-1">{task.title}</h3>
@@ -700,17 +732,22 @@ const Tasks = () => {
                       <span className="text-xs text-muted-foreground">
                         reward
                       </span>
-                      {hasActiveTimer && (
+                      {isIncomplete && (
+                        <span className="text-xs bg-orange-500 text-white px-2 py-1 rounded-full font-semibold flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> Incomplete — 10s required
+                        </span>
+                      )}
+                      {hasActiveTimer && !isIncomplete && (
                         <span className="text-xs bg-yellow-500 text-white px-2 py-1 rounded-full font-semibold">
                           ⏳ Verifying... {activeTimer?.secondsRemaining || 10}s
                         </span>
                       )}
-                      {isCompleted && !hasActiveTimer && (
+                      {isCompleted && !hasActiveTimer && !isIncomplete && (
                         <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">
                           ✅ Verified
                         </span>
                       )}
-                      {isClaimed && !isCompleted && !hasActiveTimer && (
+                      {isClaimed && !isCompleted && !hasActiveTimer && !isIncomplete && (
                         <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full">
                           ✓ Claimed Today
                         </span>
@@ -725,36 +762,45 @@ const Tasks = () => {
 
                   <Button
                     onClick={() => {
+                      if (isIncomplete) {
+                        // Retry: restart the 10s flow
+                        handleClaim(task);
+                        return;
+                      }
                       if (hasActiveTimer && activeTimer?.id) {
                         handleVerify(activeTimer.id, task);
                       } else {
                         handleClaim(task);
                       }
                     }}
-                    disabled={isClaimed || isProcessing || isVerifying || isCompleted}
-                    className={`px-6 py-3 font-bold whitespace-nowrap ${
-                      isCompleted
-                        ? "bg-green-500 cursor-not-allowed"
-                        : isClaimed && !hasActiveTimer
-                          ? "bg-gray-400 cursor-not-allowed"
-                          : hasActiveTimer
-                            ? "bg-yellow-500 hover:bg-yellow-600"
-                            : isProcessing || isVerifying
-                              ? "bg-blue-400 cursor-not-allowed"
-                              : "bg-gradient-to-r from-primary to-secondary hover:opacity-90"
+                    disabled={isProcessing || isVerifying || isCompleted || (isClaimed && !isIncomplete)}
+                    className={`px-6 py-3 font-bold whitespace-nowrap transition-colors ${
+                      isIncomplete
+                        ? "bg-orange-500 hover:bg-orange-600 text-white animate-pulse"
+                        : isCompleted
+                          ? "bg-green-500 cursor-not-allowed"
+                          : isClaimed && !hasActiveTimer
+                            ? "bg-gray-400 cursor-not-allowed"
+                            : hasActiveTimer
+                              ? "bg-yellow-500 hover:bg-yellow-600"
+                              : isProcessing || isVerifying
+                                ? "bg-blue-400 cursor-not-allowed"
+                                : "bg-gradient-to-r from-primary to-secondary hover:opacity-90"
                     }`}
                   >
-                    {isProcessing
-                      ? "Processing..."
-                      : isVerifying
-                        ? `Verifying...`
-                        : hasActiveTimer
-                          ? `Complete & Verify`
-                          : isCompleted
-                            ? "✅ Completed"
-                            : isClaimed
-                              ? "Claimed Today"
-                              : "Claim Now"}
+                    {isIncomplete
+                      ? "⚠️ Incomplete — Retry"
+                      : isProcessing
+                        ? "Processing..."
+                        : isVerifying
+                          ? `Verifying...`
+                          : hasActiveTimer
+                            ? `Complete & Verify`
+                            : isCompleted
+                              ? "✅ Completed"
+                              : isClaimed
+                                ? "Claimed Today"
+                                : "Claim Now"}
                   </Button>
                 </div>
               </Card>
